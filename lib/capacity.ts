@@ -41,6 +41,15 @@ export function calculateMaxCapacity(
   return Math.max(0, safeBytes);
 }
 
+// ─── Formatting Helpers ──────────────────────────────────────────────────────
+
+export function formatBytes(bytes: number): string {
+  if (bytes <= 0) return "0 B";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
 // ─── Capacity Validation ─────────────────────────────────────────────────────
 
 /**
@@ -63,3 +72,70 @@ export function checkCapacity(
     usagePercent: Math.round(usagePercent * 100) / 100,
   };
 }
+
+// ─── Secret File Size Estimation ──────────────────────────────────────────────
+
+// Estimated encryption & wire serialization overhead:
+// 16 (salt) + 12 (iv) + 16 (authTag) + 2 (nameLen) + ~30 (avg filename) + 4 (dataLen) ≈ 80 bytes
+const CRYPTO_OVERHEAD_BYTES = 80;
+
+/**
+ * Returns the estimated maximum raw file size that can be safely embedded
+ * into a PNG with the given dimensions after encryption and serialization.
+ */
+export function estimateMaxSecretFileSize(
+  imageWidth: number,
+  imageHeight: number
+): number {
+  const maxSafePayload = calculateMaxCapacity(imageWidth, imageHeight);
+  return Math.max(0, maxSafePayload - CRYPTO_OVERHEAD_BYTES);
+}
+
+
+// ─── PNG Dimension Extractor (Browser & Server) ───────────────────────────────
+
+/**
+ * Reads PNG width and height directly from the file header (IHDR chunk).
+ * Falls back to HTML Image() decoding in the browser if the IHDR parse fails.
+ */
+export async function getPngDimensions(
+  file: File | Blob
+): Promise<{ width: number; height: number } | null> {
+  try {
+    const headerBuffer = await file.slice(0, 24).arrayBuffer();
+    const view = new DataView(headerBuffer);
+    // PNG signature: 0x89 0x50 0x4E 0x47, 0x0D 0x0A 0x1A 0x0A
+    if (
+      view.getUint32(0) === 0x89504e47 &&
+      view.getUint32(4) === 0x0d0a1a0a
+    ) {
+      const width = view.getUint32(16);
+      const height = view.getUint32(20);
+      if (width > 0 && height > 0) {
+        return { width, height };
+      }
+    }
+  } catch {
+    // Continue to Image element fallback
+  }
+
+  if (typeof window !== "undefined" && typeof Image !== "undefined") {
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const dims = { width: img.naturalWidth, height: img.naturalHeight };
+        URL.revokeObjectURL(url);
+        resolve(dims);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(null);
+      };
+      img.src = url;
+    });
+  }
+
+  return null;
+}
+

@@ -15,11 +15,6 @@ import { embedLSB } from "@/lib/steganography";
 import { checkCapacity } from "@/lib/capacity";
 import { PNG } from "pngjs";
 
-// Disable body parser size limit for large images
-export const config = {
-  api: { bodyParser: false },
-};
-
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();

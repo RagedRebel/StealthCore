@@ -1,9 +1,28 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import {
+  Lock,
+  Eye,
+  EyeOff,
+  Download,
+  AlertCircle,
+  CheckCircle2,
+  Loader2,
+  Unlock,
+  FileCheck,
+  HardDrive,
+} from "lucide-react";
+import FileDropzone from "./FileDropzone";
+import {
+  getPngDimensions,
+  calculateMaxCapacity,
+  formatBytes,
+} from "@/lib/capacity";
 
 export default function ExtractForm() {
   const [stegoImage, setStegoImage] = useState<File | null>(null);
+  const [stegoDimensions, setStegoDimensions] = useState<{ width: number; height: number } | null>(null);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -12,6 +31,25 @@ export default function ExtractForm() {
   const [downloadName, setDownloadName] = useState("recovered_file");
   const [successInfo, setSuccessInfo] = useState<string | null>(null);
 
+  async function handleStegoChange(file: File | null) {
+    setError(null);
+    setDownloadUrl(null);
+    setSuccessInfo(null);
+    setStegoDimensions(null);
+
+    if (file && !file.name.toLowerCase().endsWith(".png") && file.type !== "image/png") {
+      setError("Stego image must be a PNG file.");
+      setStegoImage(null);
+      return;
+    }
+    setStegoImage(file);
+
+    if (file) {
+      const dims = await getPngDimensions(file);
+      setStegoDimensions(dims);
+    }
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -19,7 +57,7 @@ export default function ExtractForm() {
     setSuccessInfo(null);
 
     if (!stegoImage || !password) {
-      setError("Both the stego image and password are required.");
+      setError("Both the stego image and decryption password are required.");
       return;
     }
 
@@ -37,11 +75,10 @@ export default function ExtractForm() {
 
       if (!response.ok) {
         const errorData = await response.json();
-        setError(errorData.error || "An unknown error occurred.");
+        setError(errorData.error || "An error occurred during extraction.");
         return;
       }
 
-      // Success — extract filename and create download link
       const originalFilename =
         response.headers.get("X-Original-Filename") || "recovered_file";
 
@@ -51,127 +88,216 @@ export default function ExtractForm() {
       setDownloadUrl(url);
       setDownloadName(originalFilename);
       setSuccessInfo(
-        `Successfully extracted "${originalFilename}" (${formatBytes(blob.size)}). Download below.`
+        `Successfully decrypted and extracted "${originalFilename}" (${formatBytes(blob.size)}).`
       );
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Network error. Please try again."
+        err instanceof Error ? err.message : "Network error occurred. Please try again."
       );
     } finally {
       setLoading(false);
     }
   }
 
+  const isFormValid = Boolean(stegoImage && password);
+
+  const maxStegoBytes = stegoDimensions
+    ? calculateMaxCapacity(stegoDimensions.width, stegoDimensions.height)
+    : 0;
+  const megapixels = stegoDimensions
+    ? ((stegoDimensions.width * stegoDimensions.height) / 1_000_000).toFixed(2)
+    : "0";
+
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       {/* Stego Image Input */}
-      <div>
-        <label htmlFor="extract-stego" className="block text-sm font-medium text-slate-300 mb-1.5">
-          Stego Image (PNG with hidden data)
-        </label>
-        <input
+      <div className="space-y-2">
+        <FileDropzone
           id="extract-stego"
-          type="file"
-          accept="image/png,.png"
-          onChange={(e) => {
-            setStegoImage(e.target.files?.[0] ?? null);
-            setError(null);
-            setDownloadUrl(null);
-            setSuccessInfo(null);
-          }}
-          className="w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0
-            file:text-sm file:font-medium file:bg-slate-700 file:text-slate-200
-            hover:file:bg-slate-600 file:cursor-pointer file:transition-colors
-            text-slate-400 cursor-pointer"
+          label="Stego Image"
+          hint="PNG with hidden data"
+          accept=".png,image/png"
+          file={stegoImage}
+          onFileSelect={handleStegoChange}
+          isImage={true}
+          accentColor="coral"
+          extraBadge={
+            stegoDimensions ? (
+              <span
+                className="px-1.5 py-0.5 rounded text-[10px] font-mono border"
+                style={{
+                  backgroundColor: "rgba(255, 75, 75, 0.15)",
+                  borderColor: "rgba(255, 75, 75, 0.4)",
+                  color: "rgb(255, 180, 180)",
+                }}
+              >
+                Max: {formatBytes(maxStegoBytes)}
+              </span>
+            ) : null
+          }
         />
-        {stegoImage && (
-          <p className="mt-1 text-xs text-slate-500">
-            {stegoImage.name} ({formatBytes(stegoImage.size)})
-          </p>
+
+        {/* Carrier Info Card */}
+        {stegoImage && stegoDimensions && (
+          <div
+            className="p-3 rounded-xl border flex items-center justify-between text-xs"
+            style={{
+              backgroundColor: "rgba(50, 50, 50, 0.35)",
+              borderColor: "rgba(255, 75, 75, 0.3)",
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <HardDrive className="w-4 h-4 shrink-0" style={{ color: "rgb(255, 75, 75)" }} />
+              <span style={{ color: "rgba(255, 255, 255, 0.7)" }}>
+                Carrier holds up to{" "}
+                <strong className="text-white font-mono">{formatBytes(maxStegoBytes)}</strong> hidden payload
+              </span>
+            </div>
+            <span
+              className="px-2 py-0.5 rounded text-[11px] font-mono border"
+              style={{
+                backgroundColor: "rgba(0, 0, 0, 0.4)",
+                borderColor: "rgba(255, 255, 255, 0.1)",
+                color: "rgba(255, 255, 255, 0.75)",
+              }}
+            >
+              {stegoDimensions.width} × {stegoDimensions.height} ({megapixels} MP)
+            </span>
+          </div>
         )}
       </div>
 
       {/* Password Input */}
       <div>
-        <label htmlFor="extract-password" className="block text-sm font-medium text-slate-300 mb-1.5">
+        <label
+          htmlFor="extract-password"
+          className="block text-xs font-medium mb-1.5"
+          style={{ color: "rgb(255, 255, 255)" }}
+        >
           Decryption Password
         </label>
-        <div className="relative">
+        <div className="relative flex items-center">
+          <div
+            className="absolute left-3.5 pointer-events-none"
+            style={{ color: "rgba(255, 255, 255, 0.4)" }}
+          >
+            <Lock className="w-4 h-4" />
+          </div>
+
           <input
             id="extract-password"
             type={showPassword ? "text" : "password"}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Enter the password used during embedding"
-            className="w-full px-4 py-2.5 bg-slate-800/50 border border-slate-700 rounded-lg
-              text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2
-              focus:ring-violet-500/50 focus:border-violet-500 transition-all pr-20"
+            className="w-full pl-10 pr-12 py-2.5 rounded-xl text-sm font-mono transition-all outline-none"
+            style={{
+              backgroundColor: "rgba(50, 50, 50, 0.45)",
+              borderColor: "rgb(50, 50, 50)",
+              borderWidth: "1px",
+              borderStyle: "solid",
+              color: "rgb(255, 255, 255)",
+            }}
+            onFocus={(e) => {
+              e.currentTarget.style.borderColor = "rgb(255, 75, 75)";
+              e.currentTarget.style.boxShadow = "0 0 0 2px rgba(255, 75, 75, 0.35)";
+            }}
+            onBlur={(e) => {
+              e.currentTarget.style.borderColor = "rgb(50, 50, 50)";
+              e.currentTarget.style.boxShadow = "none";
+            }}
           />
+
           <button
             type="button"
             onClick={() => setShowPassword(!showPassword)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400
-              hover:text-slate-200 transition-colors"
+            className="absolute right-2.5 p-1.5 rounded-lg transition-colors cursor-pointer"
+            style={{ color: "rgba(255, 255, 255, 0.6)" }}
+            title={showPassword ? "Hide password" : "Show password"}
+            aria-label={showPassword ? "Hide password" : "Show password"}
           >
-            {showPassword ? "Hide" : "Show"}
+            {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
           </button>
         </div>
       </div>
 
-      {/* Error Display */}
+      {/* Error Alert */}
       {error && (
-        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
-          <span className="font-medium">Error:</span> {error}
+        <div
+          className="flex items-start gap-2.5 p-3 rounded-xl border text-sm"
+          style={{
+            backgroundColor: "rgba(239, 68, 68, 0.12)",
+            borderColor: "rgba(239, 68, 68, 0.35)",
+            color: "rgb(239, 68, 68)",
+          }}
+        >
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          <div className="text-xs leading-relaxed">{error}</div>
         </div>
       )}
 
-      {/* Success Display */}
+      {/* Success Alert */}
       {successInfo && (
-        <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm">
-          {successInfo}
+        <div
+          className="flex items-start gap-2.5 p-3 rounded-xl border text-sm"
+          style={{
+            backgroundColor: "rgba(35, 250, 56, 0.12)",
+            borderColor: "rgba(35, 250, 56, 0.35)",
+            color: "rgb(255, 255, 255)",
+          }}
+        >
+          <CheckCircle2
+            className="w-4 h-4 shrink-0 mt-0.5"
+            style={{ color: "rgb(35, 250, 56)" }}
+          />
+          <div className="text-xs leading-relaxed">{successInfo}</div>
         </div>
       )}
 
       {/* Submit Button */}
       <button
         type="submit"
-        disabled={loading || !stegoImage || !password}
-        className="w-full py-3 px-4 bg-gradient-to-r from-violet-600 to-purple-600
-          hover:from-violet-500 hover:to-purple-500 disabled:from-slate-700 disabled:to-slate-700
-          disabled:text-slate-500 text-white font-medium rounded-lg transition-all
-          focus:outline-none focus:ring-2 focus:ring-violet-500/50 cursor-pointer
-          disabled:cursor-not-allowed"
+        disabled={loading || !isFormValid}
+        className="w-full py-2.5 px-4 font-medium rounded-xl transition-all cursor-pointer text-sm flex items-center justify-center gap-2 border"
+        style={{
+          backgroundColor: isFormValid && !loading ? "rgb(255, 75, 75)" : "rgba(50, 50, 50, 0.5)",
+          borderColor: isFormValid && !loading ? "rgb(255, 75, 75)" : "rgb(50, 50, 50)",
+          color: isFormValid && !loading ? "rgb(255, 255, 255)" : "rgba(255, 255, 255, 0.4)",
+          cursor: isFormValid && !loading ? "pointer" : "not-allowed",
+          boxShadow: isFormValid && !loading ? "0 4px 14px rgba(255, 75, 75, 0.35)" : "none",
+        }}
       >
         {loading ? (
-          <span className="flex items-center justify-center gap-2">
-            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-            Extracting...
-          </span>
+          <>
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span>Extracting &amp; Decrypting...</span>
+          </>
         ) : (
-          "Extract & Decrypt"
+          <>
+            <Unlock className="w-4 h-4" />
+            <span>Extract &amp; Decrypt</span>
+          </>
         )}
       </button>
 
-      {/* Download Link */}
+      {/* Download Action */}
       {downloadUrl && (
         <a
           href={downloadUrl}
           download={downloadName}
-          className="block w-full py-3 px-4 text-center bg-emerald-600 hover:bg-emerald-500
-            text-white font-medium rounded-lg transition-colors"
+          className="w-full py-2.5 px-4 flex items-center justify-center gap-2 font-medium rounded-xl transition-all text-sm border"
+          style={{
+            backgroundColor: "rgb(50, 50, 150)",
+            borderColor: "rgb(50, 50, 150)",
+            color: "rgb(255, 255, 255)",
+            boxShadow: "0 4px 14px rgba(50, 50, 150, 0.35)",
+          }}
         >
-          ⬇ Download Recovered File ({downloadName})
+          <FileCheck className="w-4 h-4" />
+          <span>Download Extracted File ({downloadName})</span>
         </a>
       )}
     </form>
   );
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-}
