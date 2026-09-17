@@ -12,28 +12,15 @@ export default function Home() {
 
   return (
     <main
-      className="relative min-h-screen flex flex-col justify-between"
+      className="relative z-10 min-h-screen flex flex-col justify-between bg-transparent"
       style={{
-        backgroundColor: "rgb(0, 0, 0)",
         color: "rgb(255, 255, 255)",
       }}
     >
-      {/* Ambient background glow using palette RGB */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        {/* Ambient background glow using palette RGB */}
-        <div
-          className="absolute -top-40 left-1/2 -translate-x-1/2 w-[700px] h-[360px] blur-3xl opacity-60"
-          style={{
-            background:
-              "radial-gradient(ellipse at center, rgba(50, 50, 150, 0.35) 0%, rgba(255, 75, 75, 0.2) 45%, rgba(35, 250, 56, 0.12) 70%, transparent 85%)",
-          }}
-        />
-      </div>
-
       <div className="relative max-w-xl w-full mx-auto px-4 pt-12 pb-10">
         {/* Header */}
         <div className="text-center mb-8">
-          <div
+          {/* <div
             className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium mb-4 border"
             style={{
               backgroundColor: "rgba(50, 50, 50, 0.5)",
@@ -43,18 +30,17 @@ export default function Home() {
           >
             <Shield className="w-3.5 h-3.5" style={{ color: "rgb(35, 250, 56)" }} />
             <span>Encrypted Steganography</span>
-          </div>
+          </div> */}
 
-          <h1 className="text-3xl sm:text-5xl font-normal tracking-wide mb-2.5">
+          <h1 className="text-3xl sm:text-6xl font-normal tracking-wide mb-2.5">
             <span
               className="font-brand-logo text-white"
               style={{
                 fontFamily: '"Bitcount Grid Double", system-ui, sans-serif',
                 fontWeight: 400,
-                color: "rgb(255, 255, 255)",
+                color: "white",
               }}
-            >
-              StealthCore
+            >StealthCore
             </span>
           </h1>
           <p

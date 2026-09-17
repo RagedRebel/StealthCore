@@ -39,3 +39,35 @@ body {
   font-weight: 400;
 }
 
+/* Subtle black-and-white neural network background (canvas). */
+.neural-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: rgb(0, 0, 0);
+  overflow: hidden;
+}
+
+.neural-bg canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.neural-bg-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 45%,
+    rgba(0, 0, 0, 0.55) 100%
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .neural-bg canvas {
+    opacity: 0.7;
+  }
+}
+
