@@ -14,9 +14,10 @@ import {
   Loader2,
   ShieldCheck,
   HardDrive,
-  Info,
+  TableProperties,
 } from "lucide-react";
 import FileDropzone from "./FileDropzone";
+import CapacityGuideModal from "./CapacityGuideModal";
 import {
   getPngDimensions,
   estimateMaxSecretFileSize,
@@ -35,6 +36,7 @@ export default function EmbedForm() {
   const [downloadName, setDownloadName] = useState("stego.png");
   const [successInfo, setSuccessInfo] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
   const downloadRef = useRef<HTMLAnchorElement>(null);
 
   function handleGeneratePassword() {
@@ -154,7 +156,8 @@ export default function EmbedForm() {
   const isFormValid = Boolean(coverImage && secretFile && password && !isOverCapacity);
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <>
+      <form onSubmit={handleSubmit} className="space-y-5">
       {/* Cover Image Input */}
       <div className="space-y-2">
         <FileDropzone
@@ -320,6 +323,21 @@ export default function EmbedForm() {
             )}
           </div>
         )}
+
+        {/* Capacity Guide Trigger */}
+        <button
+          type="button"
+          onClick={() => setShowGuide(true)}
+          className="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-xl border text-xs font-medium transition-all cursor-pointer hover:brightness-125"
+          style={{
+            backgroundColor: "rgba(50, 50, 50, 0.35)",
+            borderColor: "rgb(50, 50, 50)",
+            color: "rgba(255, 255, 255, 0.7)",
+          }}
+        >
+          <TableProperties className="w-3.5 h-3.5" />
+          <span>View max capacity table</span>
+        </button>
       </div>
 
       {/* Secret File Input */}
@@ -494,7 +512,11 @@ export default function EmbedForm() {
           <span>Download Stego Image ({downloadName})</span>
         </a>
       )}
-    </form>
+
+      </form>
+      {/* Capacity Guide Popup — rendered over the form, not inside it */}
+      {showGuide && <CapacityGuideModal onClose={() => setShowGuide(false)} />}
+    </>
   );
 }
 
