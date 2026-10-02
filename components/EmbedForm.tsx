@@ -22,6 +22,7 @@ import {
 import FileDropzone from "./FileDropzone";
 import CapacityGuideModal from "./CapacityGuideModal";
 import QualityReportModal from "./QualityReportModal";
+import CapacityWarningModal from "./CapacityWarningModal";
 import {
   getPngDimensions,
   estimateMaxSecretFileSize,
@@ -49,6 +50,12 @@ export default function EmbedForm() {
   const [metrics, setMetrics] = useState<{ psnr: number | null; ssim: number } | null>(null);
   const [showGuide, setShowGuide] = useState(false);
   const [showQualityReport, setShowQualityReport] = useState(false);
+  const [capacityWarning, setCapacityWarning] = useState<{
+    fileName: string;
+    fileSize: number;
+    maxBytes: number;
+    coverDims?: { width: number; height: number } | null;
+  } | null>(null);
   const downloadRef = useRef<HTMLAnchorElement>(null);
 
   function handleGeneratePassword() {
@@ -103,15 +110,74 @@ export default function EmbedForm() {
     if (file) {
       const dims = await getPngDimensions(file);
       setCoverDimensions(dims);
+
+      // If user had already selected a secret file, verify it fits inside this new cover image
+      if (dims && secretFile) {
+        const maxAllowed = estimateMaxSecretFileSize(
+          dims.width,
+          dims.height,
+          cryptoMode === "rsa"
+        );
+        if (maxAllowed > 0 && secretFile.size > maxAllowed) {
+          setCapacityWarning({
+            fileName: secretFile.name,
+            fileSize: secretFile.size,
+            maxBytes: maxAllowed,
+            coverDims: dims,
+          });
+          setSecretFile(null);
+        }
+      }
     }
   }
 
   function handleSecretChange(file: File | null) {
-    setSecretFile(file);
     setError(null);
     setDownloadUrl(null);
     setSuccessInfo(null);
     setMetrics(null);
+
+    if (!file) {
+      setSecretFile(null);
+      return;
+    }
+
+    // Check if cover image is present and calculate capacity before accepting/uploading
+    if (coverDimensions) {
+      const maxAllowed = estimateMaxSecretFileSize(
+        coverDimensions.width,
+        coverDimensions.height,
+        cryptoMode === "rsa"
+      );
+      if (maxAllowed > 0 && file.size > maxAllowed) {
+        setCapacityWarning({
+          fileName: file.name,
+          fileSize: file.size,
+          maxBytes: maxAllowed,
+          coverDims: coverDimensions,
+        });
+        setSecretFile(null);
+        return;
+      }
+    }
+
+    setSecretFile(file);
+  }
+
+  function handleTryDifferentFile() {
+    setCapacityWarning(null);
+    const secretInput = document.getElementById("embed-secret") as HTMLInputElement | null;
+    if (secretInput) {
+      secretInput.click();
+    }
+  }
+
+  function handleChangeCover() {
+    setCapacityWarning(null);
+    const coverInput = document.getElementById("embed-cover") as HTMLInputElement | null;
+    if (coverInput) {
+      coverInput.click();
+    }
   }
 
   const isRSA = cryptoMode === "rsa";
@@ -780,6 +846,19 @@ export default function EmbedForm() {
           psnr={metrics.psnr}
           ssim={metrics.ssim}
           onClose={() => setShowQualityReport(false)}
+        />
+      )}
+
+      {/* Capacity Warning Popup */}
+      {capacityWarning && (
+        <CapacityWarningModal
+          fileName={capacityWarning.fileName}
+          fileSize={capacityWarning.fileSize}
+          maxBytes={capacityWarning.maxBytes}
+          coverDimensions={capacityWarning.coverDims}
+          onClose={() => setCapacityWarning(null)}
+          onTryDifferentFile={handleTryDifferentFile}
+          onChangeCover={handleChangeCover}
         />
       )}
     </>

@@ -65,6 +65,7 @@ export default function FileDropzone({
 
   function handleChange(e: ChangeEvent<HTMLInputElement>) {
     const selectedFile = e.target.files?.[0] ?? null;
+    e.target.value = "";
     onFileSelect(selectedFile);
   }
 
