@@ -17,9 +17,11 @@ import {
   TableProperties,
   Key,
   ShieldAlert,
+  BarChart3,
 } from "lucide-react";
 import FileDropzone from "./FileDropzone";
 import CapacityGuideModal from "./CapacityGuideModal";
+import QualityReportModal from "./QualityReportModal";
 import {
   getPngDimensions,
   estimateMaxSecretFileSize,
@@ -46,6 +48,7 @@ export default function EmbedForm() {
   const [successInfo, setSuccessInfo] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<{ psnr: number | null; ssim: number } | null>(null);
   const [showGuide, setShowGuide] = useState(false);
+  const [showQualityReport, setShowQualityReport] = useState(false);
   const downloadRef = useRef<HTMLAnchorElement>(null);
 
   function handleGeneratePassword() {
@@ -678,19 +681,9 @@ export default function EmbedForm() {
                 className="pt-2.5 border-t flex flex-wrap items-center justify-between gap-2 text-xs"
                 style={{ borderColor: "rgba(35, 250, 56, 0.25)" }}
               >
-                <span className="text-[11px] font-medium" style={{ color: "rgba(255, 255, 255, 0.75)" }}>
-                  Image Imperceptibility Metrics:
-                </span>
-                <div className="flex items-center gap-2">
-                  <span
-                    className="px-2 py-0.5 rounded text-[11px] font-mono border"
-                    style={{
-                      backgroundColor: "rgba(35, 250, 56, 0.15)",
-                      borderColor: "rgba(35, 250, 56, 0.4)",
-                      color: "rgb(35, 250, 56)",
-                    }}
-                  >
-                    PSNR: {metrics.psnr !== null ? `${metrics.psnr} dB` : "∞"}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] font-medium" style={{ color: "rgba(255, 255, 255, 0.75)" }}>
+                    Quality Metrics:
                   </span>
                   <span
                     className="px-2 py-0.5 rounded text-[11px] font-mono border"
@@ -700,9 +693,33 @@ export default function EmbedForm() {
                       color: "rgb(35, 250, 56)",
                     }}
                   >
-                    SSIM: {metrics.ssim}
+                    PSNR: {metrics.psnr !== null ? `${metrics.psnr.toFixed(1)} dB` : "∞"}
+                  </span>
+                  <span
+                    className="px-2 py-0.5 rounded text-[11px] font-mono border"
+                    style={{
+                      backgroundColor: "rgba(35, 250, 56, 0.15)",
+                      borderColor: "rgba(35, 250, 56, 0.4)",
+                      color: "rgb(35, 250, 56)",
+                    }}
+                  >
+                    SSIM: {metrics.ssim.toFixed(4)}
                   </span>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowQualityReport(true)}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all flex items-center gap-1.5 border cursor-pointer hover:brightness-110 active:scale-95"
+                  style={{
+                    backgroundColor: "rgba(35, 250, 56, 0.15)",
+                    borderColor: "rgba(35, 250, 56, 0.45)",
+                    color: "rgb(35, 250, 56)",
+                  }}
+                >
+                  <BarChart3 className="w-3.5 h-3.5" />
+                  <span>View Quality Report</span>
+                </button>
               </div>
             )}
           </div>
@@ -756,6 +773,15 @@ export default function EmbedForm() {
 
       {/* Capacity Guide Popup */}
       {showGuide && <CapacityGuideModal onClose={() => setShowGuide(false)} />}
+
+      {/* Quality Report Popup */}
+      {showQualityReport && metrics && (
+        <QualityReportModal
+          psnr={metrics.psnr}
+          ssim={metrics.ssim}
+          onClose={() => setShowQualityReport(false)}
+        />
+      )}
     </>
   );
 }
