@@ -4,15 +4,23 @@
  * Accepts multipart form data:
  *   - coverImage: PNG file
  *   - secretFile: any file
- *   - password: string
+ *   - password?: string (used if publicKey is not provided)
+ *   - publicKey?: string (RSA public key PEM)
  *
- * Pipeline: serialize → encrypt → pack → check capacity → embed → return stego PNG
+ * Pipeline: serialize → encrypt (AES-GCM session key + RSA wrap OR PBKDF2) →
+ *           check capacity → embed → evaluate quality (PSNR/SSIM) → return JSON { stegoImage, psnr, ssim }
  */
 import { NextRequest } from "next/server";
 import { serializeFile } from "@/lib/serialize";
-import { encryptPayload, packEncrypted } from "@/lib/crypto";
+import {
+  encryptPayloadPassword,
+  packEncrypted,
+  encryptPayloadRSA,
+  packEncryptedRSA,
+} from "@/lib/crypto";
 import { embedLSB } from "@/lib/steganography";
 import { checkCapacity } from "@/lib/capacity";
+import { evaluateStego } from "@/lib/evaluation";
 import { PNG } from "pngjs";
 
 export async function POST(request: NextRequest) {
@@ -22,7 +30,8 @@ export async function POST(request: NextRequest) {
     // ─── Extract Fields ────────────────────────────────────────────────
     const coverImageFile = formData.get("coverImage") as File | null;
     const secretFile = formData.get("secretFile") as File | null;
-    const password = formData.get("password") as string | null;
+    const password = (formData.get("password") as string | null)?.trim() || null;
+    const publicKey = (formData.get("publicKey") as string | null)?.trim() || null;
 
     // ─── Validate Inputs ───────────────────────────────────────────────
     if (!coverImageFile) {
@@ -37,9 +46,16 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    if (!password || password.length === 0) {
+    if (!publicKey && !password) {
       return Response.json(
-        { error: "Password is required" },
+        { error: "Either an RSA public key or an encryption password is required." },
+        { status: 400 }
+      );
+    }
+
+    if (publicKey && !publicKey.includes("PUBLIC KEY")) {
+      return Response.json(
+        { error: "Invalid RSA public key. Please provide a valid PEM-formatted public key." },
         { status: 400 }
       );
     }
@@ -79,9 +95,24 @@ export async function POST(request: NextRequest) {
     // 1. Serialize: wrap secret file with filename metadata
     const serialized = serializeFile(secretBuffer, secretFilename);
 
-    // 2. Encrypt: AES-256-GCM
-    const encrypted = encryptPayload(serialized, password);
-    const packed = packEncrypted(encrypted);
+    // 2. Encrypt & Pack
+    let packed: Buffer;
+    if (publicKey) {
+      try {
+        const encrypted = encryptPayloadRSA(serialized, publicKey);
+        packed = packEncryptedRSA(encrypted);
+      } catch (err) {
+        return Response.json(
+          {
+            error: `RSA encryption failed: ${err instanceof Error ? err.message : String(err)}`,
+          },
+          { status: 400 }
+        );
+      }
+    } else {
+      const encrypted = encryptPayloadPassword(serialized, password!);
+      packed = packEncrypted(encrypted);
+    }
 
     // 3. Check capacity
     const capacityResult = checkCapacity(
@@ -104,14 +135,18 @@ export async function POST(request: NextRequest) {
     // 4. Embed into cover image
     const stegoBuffer = embedLSB(coverImageBuffer, packed);
 
-    // ─── Return Stego PNG ──────────────────────────────────────────────
-    return new Response(new Uint8Array(stegoBuffer), {
-      status: 200,
-      headers: {
-        "Content-Type": "image/png",
-        "Content-Disposition": `attachment; filename="stego_${coverImageFile.name}"`,
-        "Content-Length": stegoBuffer.length.toString(),
-      },
+    // 5. Evaluate quality metrics (PSNR & SSIM)
+    const { psnr, ssim } = evaluateStego(coverImageBuffer, stegoBuffer);
+
+    // ─── Return Stego JSON with base64 PNG and quality metrics ────────
+    const base64Stego = `data:image/png;base64,${stegoBuffer.toString("base64")}`;
+
+    return Response.json({
+      stegoImage: base64Stego,
+      filename: `stego_${coverImageFile.name}`,
+      psnr,
+      ssim,
+      payloadBytes: packed.length,
     });
   } catch (err) {
     console.error("Embed error:", err);

@@ -47,7 +47,7 @@ export default function Home() {
             className="text-sm max-w-md mx-auto leading-relaxed"
             style={{ color: "rgba(255, 255, 255, 0.7)" }}
           >
-            Conceal confidential files inside lossless PNG images with authenticated AES-256-GCM encryption.
+            Conceal confidential files inside lossless PNG images with authenticated AES-256-GCM encryption & RSA key exchange.
           </p>
         </div>
 
@@ -123,8 +123,8 @@ export default function Home() {
               style={{ color: "rgba(255, 255, 255, 0.6)" }}
             >
               {activeTab === "embed"
-                ? "Select a PNG cover image, attach any file to hide, and choose an encryption password."
-                : "Upload the carrier PNG image and enter the password used to encrypt the payload."}
+                ? "Select a PNG cover image, attach any file to hide, and choose an encryption password or RSA public key."
+                : "Upload the carrier PNG image and enter the password or RSA private key to recover the file."}
             </p>
           </div>
 
@@ -158,10 +158,10 @@ export default function Home() {
           >
             <KeyRound className="w-4 h-4 mb-1.5" style={{ color: "rgb(255, 75, 75)" }} />
             <p className="text-xs font-medium" style={{ color: "rgb(255, 255, 255)" }}>
-              PBKDF2
+              RSA / PBKDF2
             </p>
             <p className="text-[10px] mt-0.5" style={{ color: "rgba(255, 255, 255, 0.5)" }}>
-              100K Hash Rounds
+              Hybrid Key Exchange
             </p>
           </div>
 

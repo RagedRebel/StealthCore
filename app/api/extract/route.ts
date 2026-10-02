@@ -3,13 +3,20 @@
  *
  * Accepts multipart form data:
  *   - stegoImage: PNG file containing hidden data
- *   - password: string
+ *   - password?: string (used if privateKey is not provided)
+ *   - privateKey?: string (RSA private key PEM)
  *
- * Pipeline: extract bits → unpack → decrypt (verify auth tag) → deserialize → return original file
+ * Pipeline: extract bits → unpack (RSA or password) → decrypt (verify auth tag) → deserialize → return original file
  */
 import { NextRequest } from "next/server";
 import { deserializeFile } from "@/lib/serialize";
-import { decryptPayload, unpackEncrypted, AuthenticationError } from "@/lib/crypto";
+import {
+  decryptPayloadPassword,
+  unpackEncrypted,
+  decryptPayloadRSA,
+  unpackEncryptedRSA,
+  AuthenticationError,
+} from "@/lib/crypto";
 import { extractLSB } from "@/lib/steganography";
 
 export async function POST(request: NextRequest) {
@@ -18,7 +25,8 @@ export async function POST(request: NextRequest) {
 
     // ─── Extract Fields ────────────────────────────────────────────────
     const stegoImageFile = formData.get("stegoImage") as File | null;
-    const password = formData.get("password") as string | null;
+    const password = (formData.get("password") as string | null)?.trim() || null;
+    const privateKey = (formData.get("privateKey") as string | null)?.trim() || null;
 
     // ─── Validate Inputs ───────────────────────────────────────────────
     if (!stegoImageFile) {
@@ -27,9 +35,16 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    if (!password || password.length === 0) {
+    if (!privateKey && !password) {
       return Response.json(
-        { error: "Password is required" },
+        { error: "Either an RSA private key or a decryption password is required." },
+        { status: 400 }
+      );
+    }
+
+    if (privateKey && !privateKey.includes("PRIVATE KEY")) {
+      return Response.json(
+        { error: "Invalid RSA private key. Please provide a valid PEM-formatted private key." },
         { status: 400 }
       );
     }
@@ -68,25 +83,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 2. Unpack encrypted components
-    const unpacked = unpackEncrypted(extractedPacked);
-
-    // 3. Decrypt (AES-256-GCM — verifies auth tag)
+    // 2. Unpack & Decrypt (AES-256-GCM — verifies auth tag)
     let decryptedSerialized: Buffer;
     try {
-      decryptedSerialized = decryptPayload(
-        unpacked.ciphertext,
-        unpacked.iv,
-        unpacked.authTag,
-        unpacked.salt,
-        password
-      );
+      if (privateKey) {
+        const unpacked = unpackEncryptedRSA(extractedPacked);
+        decryptedSerialized = decryptPayloadRSA(
+          unpacked.ciphertext,
+          unpacked.iv,
+          unpacked.authTag,
+          unpacked.wrappedKey,
+          privateKey
+        );
+      } else {
+        const unpacked = unpackEncrypted(extractedPacked);
+        decryptedSerialized = decryptPayloadPassword(
+          unpacked.ciphertext,
+          unpacked.iv,
+          unpacked.authTag,
+          unpacked.salt,
+          password!
+        );
+      }
     } catch (err) {
       if (err instanceof AuthenticationError) {
         return Response.json(
           {
             error:
-              "Data has been tampered with or password is incorrect. The authentication tag verification failed.",
+              "Data has been tampered with or key/password is incorrect. Authentication tag verification failed.",
             code: "AUTH_FAILED",
           },
           { status: 401 }
@@ -95,7 +119,7 @@ export async function POST(request: NextRequest) {
       throw err;
     }
 
-    // 4. Deserialize to recover original filename and data
+    // 3. Deserialize to recover original filename and data
     let recovered: { filename: string; data: Buffer };
     try {
       recovered = deserializeFile(decryptedSerialized);
@@ -111,7 +135,6 @@ export async function POST(request: NextRequest) {
     }
 
     // ─── Return Recovered File ─────────────────────────────────────────
-    // Determine a reasonable MIME type from extension
     const ext = recovered.filename.split(".").pop()?.toLowerCase() || "";
     const mimeType = getMimeType(ext);
 

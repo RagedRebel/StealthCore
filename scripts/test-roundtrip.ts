@@ -8,6 +8,10 @@
  *   4. Full pipeline: Serialize → Encrypt → Pack → Embed → Extract → Unpack → Decrypt → Deserialize
  *   5. Tamper detection (alter 1 byte in stego image → auth tag failure)
  *   6. Capacity check rejects oversized payload
+ *   7. Pack / Unpack Round-trip (password)
+ *   8. RSA Full Pipeline: KeyGen → EncryptRSA → PackRSA → Embed → Extract → UnpackRSA → DecryptRSA → Deserialize
+ *   9. RSA Tamper Detection (auth tag failure on bit flip)
+ *   10. Image Quality Evaluation Sanity Check (PSNR > 40 dB, SSIM > 0.98)
  *
  * Run: npx tsx scripts/test-roundtrip.ts
  */
@@ -18,10 +22,16 @@ import {
   decryptPayload,
   packEncrypted,
   unpackEncrypted,
+  encryptPayloadRSA,
+  decryptPayloadRSA,
+  packEncryptedRSA,
+  unpackEncryptedRSA,
   AuthenticationError,
 } from "../lib/crypto";
 import { embedLSB, extractLSB } from "../lib/steganography";
 import { checkCapacity } from "../lib/capacity";
+import { generateKeyPair } from "../lib/rsa";
+import { evaluateStego } from "../lib/evaluation";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -73,7 +83,7 @@ console.log("\n─── Test 2: Encryption Round-trip (correct password) ──
   const password = "super-secret-password-123!";
   const plaintext = Buffer.from("Top secret data that must be encrypted", "utf-8");
 
-  const encrypted = encryptPayload(plaintext, password);
+  const encrypted = encryptPayload(plaintext, password) as any;
   const decrypted = decryptPayload(
     encrypted.ciphertext,
     encrypted.iv,
@@ -93,7 +103,7 @@ console.log("\n─── Test 3: Decryption with wrong password ───");
   const wrongPassword = "wrong-password";
   const plaintext = Buffer.from("Sensitive payload", "utf-8");
 
-  const encrypted = encryptPayload(plaintext, password);
+  const encrypted = encryptPayload(plaintext, password) as any;
   let threwAuthError = false;
 
   try {
@@ -126,7 +136,7 @@ console.log("\n─── Test 4: Full Pipeline (Serialize → Encrypt → Embed 
   const serialized = serializeFile(originalData, originalFilename);
 
   // 2. Encrypt
-  const encrypted = encryptPayload(serialized, password);
+  const encrypted = encryptPayload(serialized, password) as any;
   const packed = packEncrypted(encrypted);
 
   // 3. Create a large enough cover image
@@ -171,7 +181,7 @@ console.log("\n─── Test 5: Tamper Detection ───");
   const password = "tamper-test-pw";
   const payload = Buffer.from("Do not tamper with me!", "utf-8");
 
-  const encrypted = encryptPayload(payload, password);
+  const encrypted = encryptPayload(payload, password) as any;
   const packed = packEncrypted(encrypted);
   const coverPNG = createTestPNG(200, 200);
   const stegoPNG = embedLSB(coverPNG, packed);
@@ -179,7 +189,6 @@ console.log("\n─── Test 5: Tamper Detection ───");
   // Tamper: flip a bit within the actual payload region of the stego image
   const tmpPng = PNG.sync.read(stegoPNG);
   // Flip LSB of the R channel of pixel 20 — well within the payload region
-  // (payload is ~88 bytes = ~704 bits = ~235 pixels)
   const targetPixel = 20;
   const targetIdx = targetPixel * 4; // R channel of pixel 20
   tmpPng.data[targetIdx] ^= 0x01; // flip LSB
@@ -216,13 +225,13 @@ console.log("\n─── Test 6: Capacity Rejection ───");
   assert(cap2.fits, `Small payload accepted (1 byte <= ${cap2.maxBytes} max)`);
 }
 
-// ─── Pack / Unpack Round-trip ────────────────────────────────────────────────
+// ─── Test 7: Pack / Unpack Round-trip ────────────────────────────────────────
 
 console.log("\n─── Test 7: Pack / Unpack Round-trip ───");
 {
   const password = "pack-test";
   const data = Buffer.from("Pack test data", "utf-8");
-  const encrypted = encryptPayload(data, password);
+  const encrypted = encryptPayload(data, password) as any;
   const packed = packEncrypted(encrypted);
   const unpacked = unpackEncrypted(packed);
 
@@ -230,6 +239,119 @@ console.log("\n─── Test 7: Pack / Unpack Round-trip ───");
   assert(Buffer.compare(unpacked.iv, encrypted.iv) === 0, "IV preserved");
   assert(Buffer.compare(unpacked.authTag, encrypted.authTag) === 0, "AuthTag preserved");
   assert(Buffer.compare(unpacked.ciphertext, encrypted.ciphertext) === 0, "Ciphertext preserved");
+}
+
+// ─── Test 8: RSA Round-trip ──────────────────────────────────────────────────
+
+console.log("\n─── Test 8: RSA Round-trip (KeyGen → EncryptRSA → Embed → Extract → DecryptRSA) ───");
+{
+  const { publicKey, privateKey } = generateKeyPair();
+  assert(
+    publicKey.includes("PUBLIC KEY") && privateKey.includes("PRIVATE KEY"),
+    "RSA key pair generated successfully"
+  );
+
+  const originalFilename = "classified_report.docx";
+  const originalData = Buffer.from(
+    "TOP SECRET: RSA-OAEP session key wrapping round-trip verified successfully.",
+    "utf-8"
+  );
+
+  // 1. Serialize
+  const serialized = serializeFile(originalData, originalFilename);
+
+  // 2. Encrypt with RSA public key
+  const encryptedRSA = encryptPayloadRSA(serialized, publicKey);
+  const packedRSA = packEncryptedRSA(encryptedRSA);
+
+  // 3. Cover image
+  const coverPNG = createTestPNG(200, 200);
+
+  // 4. Capacity check
+  const cap = checkCapacity(packedRSA.length, 200, 200);
+  assert(cap.fits, `Capacity check passes for RSA (${packedRSA.length} bytes / ${cap.maxBytes} max)`);
+
+  // 5. Embed
+  const stegoPNG = embedLSB(coverPNG, packedRSA);
+
+  // 6. Extract
+  const extractedPacked = extractLSB(stegoPNG);
+
+  // 7. Unpack RSA
+  const unpackedRSA = unpackEncryptedRSA(extractedPacked);
+
+  // 8. Decrypt RSA
+  const decryptedSerialized = decryptPayloadRSA(
+    unpackedRSA.ciphertext,
+    unpackedRSA.iv,
+    unpackedRSA.authTag,
+    unpackedRSA.wrappedKey,
+    privateKey
+  );
+
+  // 9. Deserialize
+  const recovered = deserializeFile(decryptedSerialized);
+
+  assert(recovered.filename === originalFilename, "RSA recovered filename matches");
+  assert(
+    Buffer.compare(recovered.data, originalData) === 0,
+    "RSA recovered data is byte-for-byte identical"
+  );
+}
+
+// ─── Test 9: RSA Tamper Detection ────────────────────────────────────────────
+
+console.log("\n─── Test 9: RSA Tamper Detection ───");
+{
+  const { publicKey, privateKey } = generateKeyPair();
+  const payload = Buffer.from("Sensitive financial records - integrity critical", "utf-8");
+
+  const encryptedRSA = encryptPayloadRSA(payload, publicKey);
+  const packedRSA = packEncryptedRSA(encryptedRSA);
+  const coverPNG = createTestPNG(200, 200);
+  const stegoPNG = embedLSB(coverPNG, packedRSA);
+
+  // Tamper: flip 1 bit in the stego pixel data within the ciphertext region
+  // Ciphertext starts around byte 276 (~pixel 740+)
+  const tmpPng = PNG.sync.read(stegoPNG);
+  const targetPixel = 800;
+  tmpPng.data[targetPixel * 4] ^= 0x01; // flip LSB
+  const tamperedStego = PNG.sync.write(tmpPng);
+
+  const extractedPacked = extractLSB(tamperedStego);
+
+  let threwAuthError = false;
+  try {
+    const unpacked = unpackEncryptedRSA(extractedPacked);
+    decryptPayloadRSA(
+      unpacked.ciphertext,
+      unpacked.iv,
+      unpacked.authTag,
+      unpacked.wrappedKey,
+      privateKey
+    );
+  } catch (err) {
+    threwAuthError = err instanceof AuthenticationError;
+  }
+
+  assert(threwAuthError, "Tampered RSA stego image cleanly triggers AuthenticationError");
+}
+
+// ─── Test 10: PSNR & SSIM Sanity Check ───────────────────────────────────────
+
+console.log("\n─── Test 10: Image Quality Evaluation Sanity Check (PSNR / SSIM) ───");
+{
+  const coverPNG = createTestPNG(200, 200);
+  const smallPayload = Buffer.from("Small imperceptibility test payload", "utf-8");
+  const stegoPNG = embedLSB(coverPNG, smallPayload);
+
+  const metrics = evaluateStego(coverPNG, stegoPNG);
+
+  console.log(`    PSNR: ${metrics.psnr} dB (threshold: > 40 dB)`);
+  console.log(`    SSIM: ${metrics.ssim} (threshold: > 0.98)`);
+
+  assert(metrics.psnr > 40, `PSNR (${metrics.psnr} dB) is above 40 dB imperceptibility threshold`);
+  assert(metrics.ssim > 0.98, `SSIM (${metrics.ssim}) is above 0.98 structural similarity threshold`);
 }
 
 // ─── Summary ─────────────────────────────────────────────────────────────────

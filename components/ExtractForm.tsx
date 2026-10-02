@@ -5,13 +5,13 @@ import {
   Lock,
   Eye,
   EyeOff,
-  Download,
   AlertCircle,
   CheckCircle2,
   Loader2,
   Unlock,
   FileCheck,
   HardDrive,
+  Key,
 } from "lucide-react";
 import FileDropzone from "./FileDropzone";
 import {
@@ -20,10 +20,14 @@ import {
   formatBytes,
 } from "@/lib/capacity";
 
+type CryptoMode = "password" | "rsa";
+
 export default function ExtractForm() {
+  const [cryptoMode, setCryptoMode] = useState<CryptoMode>("password");
   const [stegoImage, setStegoImage] = useState<File | null>(null);
   const [stegoDimensions, setStegoDimensions] = useState<{ width: number; height: number } | null>(null);
   const [password, setPassword] = useState("");
+  const [privateKey, setPrivateKey] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,8 +60,18 @@ export default function ExtractForm() {
     setDownloadUrl(null);
     setSuccessInfo(null);
 
-    if (!stegoImage || !password) {
-      setError("Both the stego image and decryption password are required.");
+    if (!stegoImage) {
+      setError("Stego image is required.");
+      return;
+    }
+
+    if (cryptoMode === "password" && !password) {
+      setError("Decryption password is required.");
+      return;
+    }
+
+    if (cryptoMode === "rsa" && !privateKey.trim()) {
+      setError("RSA private key is required.");
       return;
     }
 
@@ -66,7 +80,11 @@ export default function ExtractForm() {
     try {
       const formData = new FormData();
       formData.append("stegoImage", stegoImage);
-      formData.append("password", password);
+      if (cryptoMode === "rsa") {
+        formData.append("privateKey", privateKey.trim());
+      } else {
+        formData.append("password", password);
+      }
 
       const response = await fetch("/api/extract", {
         method: "POST",
@@ -88,7 +106,9 @@ export default function ExtractForm() {
       setDownloadUrl(url);
       setDownloadName(originalFilename);
       setSuccessInfo(
-        `Successfully decrypted and extracted "${originalFilename}" (${formatBytes(blob.size)}).`
+        `Successfully decrypted with ${
+          cryptoMode === "rsa" ? "RSA-2048 private key" : "AES password"
+        } and extracted "${originalFilename}" (${formatBytes(blob.size)}).`
       );
     } catch (err) {
       setError(
@@ -99,7 +119,10 @@ export default function ExtractForm() {
     }
   }
 
-  const isFormValid = Boolean(stegoImage && password);
+  const isFormValid = Boolean(
+    stegoImage &&
+      (cryptoMode === "rsa" ? privateKey.trim().length > 0 : password.length > 0)
+  );
 
   const maxStegoBytes = stegoDimensions
     ? calculateMaxCapacity(stegoDimensions.width, stegoDimensions.height)
@@ -167,58 +190,131 @@ export default function ExtractForm() {
         )}
       </div>
 
-      {/* Password Input */}
-      <div>
-        <label
-          htmlFor="extract-password"
-          className="block text-xs font-medium mb-1.5"
-          style={{ color: "rgb(255, 255, 255)" }}
-        >
-          Decryption Password
-        </label>
-        <div className="relative flex items-center">
+      {/* Decryption Mode Selector */}
+      <div className="space-y-3 pt-1">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium text-white">Decryption Strategy</span>
           <div
-            className="absolute left-3.5 pointer-events-none"
-            style={{ color: "rgba(255, 255, 255, 0.4)" }}
-          >
-            <Lock className="w-4 h-4" />
-          </div>
-
-          <input
-            id="extract-password"
-            type={showPassword ? "text" : "password"}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Enter the password used during embedding"
-            className="w-full pl-10 pr-12 py-2.5 rounded-xl text-sm font-mono transition-all outline-none"
+            className="flex rounded-lg p-0.5 border"
             style={{
-              backgroundColor: "rgba(50, 50, 50, 0.45)",
+              backgroundColor: "rgba(50, 50, 50, 0.5)",
               borderColor: "rgb(50, 50, 50)",
-              borderWidth: "1px",
-              borderStyle: "solid",
-              color: "rgb(255, 255, 255)",
             }}
-            onFocus={(e) => {
-              e.currentTarget.style.borderColor = "rgb(255, 75, 75)";
-              e.currentTarget.style.boxShadow = "0 0 0 2px rgba(255, 75, 75, 0.35)";
-            }}
-            onBlur={(e) => {
-              e.currentTarget.style.borderColor = "rgb(50, 50, 50)";
-              e.currentTarget.style.boxShadow = "none";
-            }}
-          />
-
-          <button
-            type="button"
-            onClick={() => setShowPassword(!showPassword)}
-            className="absolute right-2.5 p-1.5 rounded-lg transition-colors cursor-pointer"
-            style={{ color: "rgba(255, 255, 255, 0.6)" }}
-            title={showPassword ? "Hide password" : "Show password"}
-            aria-label={showPassword ? "Hide password" : "Show password"}
           >
-            {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-          </button>
+            <button
+              type="button"
+              onClick={() => setCryptoMode("password")}
+              className="px-2.5 py-1 text-xs rounded-md font-medium transition-all cursor-pointer"
+              style={{
+                backgroundColor: cryptoMode === "password" ? "rgb(255, 75, 75)" : "transparent",
+                color: cryptoMode === "password" ? "rgb(255, 255, 255)" : "rgba(255, 255, 255, 0.6)",
+              }}
+            >
+              Password
+            </button>
+            <button
+              type="button"
+              onClick={() => setCryptoMode("rsa")}
+              className="px-2.5 py-1 text-xs rounded-md font-medium transition-all cursor-pointer"
+              style={{
+                backgroundColor: cryptoMode === "rsa" ? "rgb(255, 75, 75)" : "transparent",
+                color: cryptoMode === "rsa" ? "rgb(255, 255, 255)" : "rgba(255, 255, 255, 0.6)",
+              }}
+            >
+              RSA Private Key
+            </button>
+          </div>
         </div>
+
+        {/* Password Mode Input */}
+        {cryptoMode === "password" ? (
+          <div>
+            <label
+              htmlFor="extract-password"
+              className="block text-xs font-medium mb-1.5"
+              style={{ color: "rgb(255, 255, 255)" }}
+            >
+              Decryption Password
+            </label>
+            <div className="relative flex items-center">
+              <div
+                className="absolute left-3.5 pointer-events-none"
+                style={{ color: "rgba(255, 255, 255, 0.4)" }}
+              >
+                <Lock className="w-4 h-4" />
+              </div>
+
+              <input
+                id="extract-password"
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter the password used during embedding"
+                className="w-full pl-10 pr-12 py-2.5 rounded-xl text-sm font-mono transition-all outline-none"
+                style={{
+                  backgroundColor: "rgba(50, 50, 50, 0.45)",
+                  borderColor: "rgb(50, 50, 50)",
+                  borderWidth: "1px",
+                  borderStyle: "solid",
+                  color: "rgb(255, 255, 255)",
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.borderColor = "rgb(255, 75, 75)";
+                  e.currentTarget.style.boxShadow = "0 0 0 2px rgba(255, 75, 75, 0.35)";
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.borderColor = "rgb(50, 50, 50)";
+                  e.currentTarget.style.boxShadow = "none";
+                }}
+              />
+
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-2.5 p-1.5 rounded-lg transition-colors cursor-pointer"
+                style={{ color: "rgba(255, 255, 255, 0.6)" }}
+                title={showPassword ? "Hide password" : "Show password"}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* RSA Private Key Mode */
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-white">
+              <Key className="w-3.5 h-3.5 text-red-400" />
+              <label htmlFor="extract-private-key">Receiver's RSA Private Key (PEM)</label>
+            </div>
+            <textarea
+              id="extract-private-key"
+              rows={5}
+              value={privateKey}
+              onChange={(e) => setPrivateKey(e.target.value)}
+              placeholder="-----BEGIN PRIVATE KEY-----&#10;Paste receiver's 2048-bit RSA private key here&#10;-----END PRIVATE KEY-----"
+              className="w-full p-3 rounded-xl text-xs font-mono transition-all outline-none resize-none"
+              style={{
+                backgroundColor: "rgba(50, 50, 50, 0.45)",
+                borderColor: "rgb(50, 50, 50)",
+                borderWidth: "1px",
+                borderStyle: "solid",
+                color: "rgb(255, 255, 255)",
+              }}
+              onFocus={(e) => {
+                e.currentTarget.style.borderColor = "rgb(255, 75, 75)";
+                e.currentTarget.style.boxShadow = "0 0 0 2px rgba(255, 75, 75, 0.35)";
+              }}
+              onBlur={(e) => {
+                e.currentTarget.style.borderColor = "rgb(50, 50, 50)";
+                e.currentTarget.style.boxShadow = "none";
+              }}
+            />
+            <p className="text-[11px] text-zinc-400">
+              Paste the RSA private key corresponding to the public key used during embedding.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Error Alert */}
@@ -300,4 +396,3 @@ export default function ExtractForm() {
     </form>
   );
 }
-

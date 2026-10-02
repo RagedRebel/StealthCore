@@ -76,8 +76,10 @@ export function checkCapacity(
 // ─── Secret File Size Estimation ──────────────────────────────────────────────
 
 // Estimated encryption & wire serialization overhead:
-// 16 (salt) + 12 (iv) + 16 (authTag) + 2 (nameLen) + ~30 (avg filename) + 4 (dataLen) ≈ 80 bytes
+// Password: 16 (salt) + 12 (iv) + 16 (authTag) + 2 (nameLen) + ~30 (avg filename) + 4 (dataLen) ≈ 80 bytes
+// RSA: 256 (wrappedKey) + 2 (keyLen) + 12 (iv) + 2 (ivLen) + 16 (authTag) + 2 (tagLen) + 4 (cipherLen) + 2 (nameLen) + ~30 (filename) + 4 (dataLen) ≈ 330 bytes
 const CRYPTO_OVERHEAD_BYTES = 80;
+const CRYPTO_OVERHEAD_BYTES_RSA = 330;
 
 /**
  * Returns the estimated maximum raw file size that can be safely embedded
@@ -85,10 +87,12 @@ const CRYPTO_OVERHEAD_BYTES = 80;
  */
 export function estimateMaxSecretFileSize(
   imageWidth: number,
-  imageHeight: number
+  imageHeight: number,
+  isRSA = false
 ): number {
   const maxSafePayload = calculateMaxCapacity(imageWidth, imageHeight);
-  return Math.max(0, maxSafePayload - CRYPTO_OVERHEAD_BYTES);
+  const overhead = isRSA ? CRYPTO_OVERHEAD_BYTES_RSA : CRYPTO_OVERHEAD_BYTES;
+  return Math.max(0, maxSafePayload - overhead);
 }
 
 
